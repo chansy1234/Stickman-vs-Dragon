@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Stickman vs Dragon</title>
+<style>
+  :root { --paper:#f7f2e2; --ink:#2b2b2b; --muted:#7a7462; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--paper); color:var(--ink); font-family:"Segoe Print","Bradley Hand","Chalkboard SE","Comic Sans MS",cursive; }
+  body { display:flex; flex-direction:column; align-items:center; padding:12px 16px 24px; min-height:100vh;
+    background-image:repeating-linear-gradient(transparent 0 27px, rgba(70,120,200,.16) 27px 28px); }
+  h1 { margin:6px 0 12px; font-size:1.8rem; transform:rotate(-1.5deg); }
+  .card { background:#fffdf5; border:3px solid var(--ink); border-radius:255px 15px 225px 15px/15px 225px 15px 255px; padding:20px 22px; width:100%; max-width:440px; }
+  label { font-size:.95rem; }
+  input { width:100%; padding:10px 12px; margin:4px 0 12px; border:2px solid var(--ink); border-radius:12px 4px 12px 4px; background:#fff; font:inherit; font-size:1.05rem; color:var(--ink); }
+  input#code { text-transform:uppercase; letter-spacing:.3em; text-align:center; }
+  button { font:inherit; font-weight:700; font-size:1.05rem; padding:10px 14px; border:3px solid var(--ink); border-radius:15px 4px 15px 4px; background:#ffe27a; color:var(--ink); cursor:pointer; }
+  button:active { transform:translateY(2px); }
+  button.alt { background:#e6e0cc; }
+  button.wide { width:100%; margin-top:8px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .hidden { display:none !important; }
+  .err { color:#c0392b; min-height:1.3em; margin:8px 0 0; font-size:.9rem; }
+  .muted { color:var(--muted); }
+  .center { text-align:center; }
+  .roomcode { font-size:2.4rem; letter-spacing:.3em; text-align:center; font-weight:700; margin:2px 0 8px; }
+  ul { list-style:none; padding:0; margin:10px 0; }
+  li { display:flex; justify-content:space-between; padding:8px 12px; border:2px dashed var(--ink); border-radius:10px; margin-bottom:6px; }
+  #game { width:100%; max-width:900px; }
+  .stage { position:relative; }
+  canvas { width:100%; aspect-ratio:8/5; display:block; border:3px solid var(--ink); border-radius:6px; background:var(--paper); touch-action:none; cursor:crosshair; }
+  #over { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(92%,400px); background:#fffdf5; }
+  #bar { display:flex; gap:8px; align-items:center; margin-top:10px; flex-wrap:wrap; }
+  #bar .ucol { flex:1 1 90px; display:flex; flex-direction:column; gap:4px; }
+  #bar .up { font-size:.78rem; padding:4px 2px; background:#bfe3ff; line-height:1.1; }
+  #bar .up.poor { opacity:.55; }
+  #pts { flex:1 1 100%; font-size:.95rem; }
+  #bar .unit { width:100%; line-height:1.15; padding:8px 6px; }
+  #bar .unit small { display:block; font-weight:400; font-size:.75rem; }
+  #bar .unit.sel { background:#9be39b; outline:3px solid var(--ink); }
+  #bar .unit.poor { opacity:.5; }
+  #energy { flex:1 1 100%; height:18px; border:3px solid var(--ink); border-radius:10px; overflow:hidden; background:#fff; }
+  #energy { position:relative; height:22px; }
+  #energy div { height:100%; width:50%; background:#f3b73c; }
+  #entxt { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.85rem; font-weight:700; color:#111; text-shadow:0 0 3px #fff, 0 0 3px #fff; pointer-events:none; }
+  #hint { font-size:.8rem; margin-top:6px; }
+</style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+</head>
+<body>
+<h1>⚔️ Stickman vs Dragon</h1>
+
+<div id="home" class="card">
+  <label for="name">Your name</label>
+  <input id="name" maxlength="10" placeholder="e.g. Sam" autocomplete="off">
+  <button id="quick" class="wide">⚡ Quick match (play with anyone)</button>
+  <button id="create" class="wide alt">Create a private room</button>
+  <p class="muted center" style="margin:12px 0 4px">or join a friend</p>
+  <input id="code" maxlength="4" placeholder="CODE" autocomplete="off">
+  <button id="join" class="wide alt">Join room</button>
+  <button id="solo" class="wide alt">Practice alone</button>
+  <p class="err" id="err"></p>
+</div>
+
+<div id="lobby" class="card hidden">
+  <p class="muted center" style="margin:0">Room code. Share it with friends (max 4)</p>
+  <div class="roomcode" id="roomcode"></div>
+  <ul id="lobbylist"></ul>
+  <button id="start" class="wide">Start game</button>
+  <p class="muted center" id="lobbymsg"></p>
+</div>
+
+<div id="game" class="hidden">
+  <div class="stage">
+    <canvas id="cv" width="1600" height="1000"></canvas>
+    <div id="over" class="card hidden">
+      <h2 id="overtitle" class="center" style="margin-top:0"></h2>
+      <ul id="overlist"></ul>
+      <button id="again" class="wide">Play again</button>
+      <p class="muted center" id="againmsg"></p>
+    </div>
+  </div>
+  <div id="bar">
+    <div class="ucol"><button class="unit sel" data-t="0">1 · Pikeman<small>⚡10 · long spear</small></button><button class="up" data-u="0"></button></div>
+    <div class="ucol"><button class="unit" data-t="1">2 · Shield<small>⚡20 · tank</small></button><button class="up" data-u="1"></button></div>
+    <div class="ucol"><button class="unit" data-t="2">3 · Archer<small>⚡15 · ranged</small></button><button class="up" data-u="2"></button></div>
+    <div id="pts"></div>
+    <div id="energy"><div></div><span id="entxt">⚡ 0/100</span></div>
+  </div>
+  <div id="hint" class="muted center">Click or tap the page to send a stickman (not inside the dotted circle). Each point of damage you deal is 1 point. Upgrades cost points, so they must pay for themselves.</div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+// ===== Firebase config: paste yours here (see setup steps) =====
+var CFG = {
+  apiKey: "AIzaSyD52JB7sXk41hEMTtJNwsT_cyj7yDq5rXY",
+  authDomain: "stickman-kingdom.firebaseapp.com",
+  databaseURL: "https://stickman-kingdom-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "stickman-kingdom",
+  appId: "1:267025334339:web:fab3fe23567f9bdecad4f6"
+};
+// ===============================================================
+
+var W = 800, H = 500, GX = 400, GY = 240;
+var COLORS = ['#d9382b', '#2b6fd9', '#2f9e44', '#d98a00'];
+var CNAMES = ['Red', 'Blue', 'Green', 'Orange'];
+var TYPES = [
+  { n: 'Pikeman',  cost: 10, hp: 40,  sp: 60, rng: 125, dmg: 6, cd: 0.8 },
+  { n: 'Shield',   cost: 20, hp: 130, sp: 42, rng: 96,  dmg: 2, cd: 1 },
+  { n: 'Archer',   cost: 15, hp: 25,  sp: 50, rng: 230, dmg: 5, cd: 1 }
+];
+var MAXU = 25, REGEN = 8, SAFE = 150;
+var $ = function (id) { return document.getElementById(id); };
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function wrap(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
+function mult(l) { return 1 + 0.5 * (l - 1); }   // level 1 = x1, level 2 = x1.5, level 3 = x2
+var UPCOST = [0, 200, 500];                     // cost to go from level 1->2, 2->3
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* ================= Simulation (runs on the host only) ================= */
+function Sim(n) {
+  this.units = []; this.nid = 1;
+  this.gmax = 10000 + 8000 * (n - 1); this.ghp = this.gmax;
+  this.en = [50, 50, 50, 50]; this.sc = [0, 0, 0, 0];
+  this.stomp = 3; this.sk = 0;
+  this.breathT = 8; this.bs = 0; this.ba = 0; this.b0 = 0; this.bt = 0; this.bk = 0; this.hit = {};
+  this.over = false;
+  this.lv = [[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]];
+  this.spent = [0, 0, 0, 0];
+  this.vs = []; this.vid = 1; this.volT = 6;   // volcano strikes
+}
+Sim.prototype.upgrade = function (o, t) {
+  if (this.over || !(o >= 0 && o <= 3) || !TYPES[t]) return;
+  var L = this.lv[o][t];
+  if (L >= 3) return;
+  var cost = UPCOST[L];
+  if (Math.floor(this.sc[o] - this.spent[o]) < cost) return;
+  this.spent[o] += cost;
+  var ratio = mult(L + 1) / mult(L);
+  this.lv[o][t] = L + 1;
+  this.units.forEach(function (u) { if (u.o === o && u.t === t) u.hp *= ratio; });
+};
+Sim.prototype.spawn = function (o, t, x, y) {
+  if (this.over || !(o >= 0 && o <= 3) || !TYPES[t]) return;
+  x = clamp(+x || 0, 10, W - 10); y = clamp(+y || 0, 10, H - 10);
+  if (Math.hypot(x - GX, y - GY) < SAFE) return;
+  var T = TYPES[t];
+  if (this.en[o] < T.cost) return;
+  var c = 0;
+  for (var i = 0; i < this.units.length; i++) if (this.units[i].o === o) c++;
+  if (c >= MAXU) return;
+  this.en[o] -= T.cost;
+  this.units.push({ id: this.nid++, o: o, t: t, x: x, y: y, hp: T.hp * mult(this.lv[o][t]), cd: 0, fl: 0 });
+};
+Sim.prototype.hurt = function (u, a) {
+  if (u.t === 1) a *= 0.5;
+  else for (var i = 0; i < this.units.length; i++) {
+    var s = this.units[i];
+    if (s.t !== 1) continue;
+    // "behind" a shield = within 45px, on the side facing away from the dragon (about a 60 degree cone)
+    var gd = Math.hypot(s.x - GX, s.y - GY) || 1, ax = (s.x - GX) / gd, ay = (s.y - GY) / gd;
+    var vx = u.x - s.x, vy = u.y - s.y, d = Math.hypot(vx, vy), proj = vx * ax + vy * ay;
+    if (d < 45 && proj > 0 && proj > 0.5 * d) { a *= 0.5; break; }
+  }
+  u.hp -= a;
+};
+Sim.prototype.step = function (dt) {
+  if (this.over) return;
+  var i, j, u, o, U = this.units;
+  for (o = 0; o < 4; o++) this.en[o] = Math.min(100, this.en[o] + REGEN * dt);
+  for (i = 0; i < U.length; i++) {
+    u = U[i];
+    var T = TYPES[u.t], dx = GX - u.x, dy = GY - u.y, d = Math.hypot(dx, dy) || 1;
+    u.fl = Math.max(0, u.fl - dt); u.cd -= dt;
+    if (d > T.rng) { u.x += dx / d * T.sp * dt; u.y += dy / d * T.sp * dt; }
+    else if (u.cd <= 0) { u.cd = T.cd; var dm = T.dmg * mult(this.lv[u.o][u.t]); this.ghp -= dm; this.sc[u.o] += dm; u.fl = 0.25; }
+  }
+  for (i = 0; i < U.length; i++) for (j = i + 1; j < U.length; j++) {
+    var a = U[i], b = U[j], ex = b.x - a.x, ey = b.y - a.y, dd = Math.hypot(ex, ey);
+    if (dd < 13) {
+      if (dd < 0.01) { ex = Math.random() - .5; ey = Math.random() - .5; dd = Math.hypot(ex, ey); }
+      var p = (13 - dd) * 0.5 * Math.min(1, dt * 8) / dd;
+      a.x -= ex * p; a.y -= ey * p; b.x += ex * p; b.y += ey * p;
+    }
+  }
+  this.stomp -= dt;
+  if (this.stomp <= 0) {
+    this.stomp = 3; this.sk++;
+    for (i = 0; i < U.length; i++) if (Math.hypot(U[i].x - GX, U[i].y - GY) < 135) this.hurt(U[i], 30);
+  }
+  if (this.bs === 0) {
+    this.breathT -= dt;
+    if (this.breathT <= 0) { this.bs = 1; this.bt = 1; this.ba = Math.random() * Math.PI * 2; this.bk++; this.hit = {}; }
+  } else if (this.bs === 1) {
+    this.bt -= dt;
+    if (this.bt <= 0) { this.bs = 2; this.bt = 1.2; this.b0 = this.ba; }
+  } else {
+    this.bt -= dt;
+    this.ba = this.b0 + 1.4 * (1 - Math.max(0, this.bt) / 1.2);
+    for (i = 0; i < U.length; i++) {
+      u = U[i];
+      var ang = Math.atan2(u.y - GY, u.x - GX), dist = Math.hypot(u.x - GX, u.y - GY);
+      if (dist < 430 && Math.abs(wrap(ang - this.ba)) < 0.1 && !this.hit[u.id]) { this.hit[u.id] = 1; this.hurt(u, 70); }
+    }
+    if (this.bt <= 0) { this.bs = 0; this.breathT = 8; }
+  }
+  // volcano strikes: every 9s one small, one medium and one big land at random spots, 2s after being marked
+  this.volT -= dt;
+  if (this.volT <= 0) {
+    this.volT = 9;
+    var self = this;
+    [[35, 45], [60, 70], [95, 120]].forEach(function (k) {
+      // centre stays within archer range (230px) of the dragon, where units actually stand
+      var ang = Math.random() * Math.PI * 2, dist = Math.sqrt(60 * 60 + Math.random() * (230 * 230 - 60 * 60));
+      self.vs.push({ id: self.vid++, x: clamp(GX + Math.cos(ang) * dist, 20, W - 20), y: clamp(GY + Math.sin(ang) * dist, 20, H - 20), r: k[0], dmg: k[1], t: 2 });
+    });
+  }
+  var pending = [];
+  for (i = 0; i < this.vs.length; i++) {
+    var st = this.vs[i];
+    st.t -= dt;
+    if (st.t > 0) { pending.push(st); continue; }
+    for (j = 0; j < U.length; j++) if (Math.hypot(U[j].x - st.x, U[j].y - st.y) < st.r) this.hurt(U[j], st.dmg);
+  }
+  this.vs = pending;
+  this.units = U.filter(function (x) { return x.hp > 0; });
+  if (this.ghp <= 0) { this.ghp = 0; this.over = true; }
+};
+Sim.prototype.snap = function () {
+  return {
+    g: Math.ceil(this.ghp), m: this.gmax,
+    e: this.en.map(function (v) { return Math.round(v); }),
+    s: this.sc.map(function (v) { return Math.round(v); }),
+    l: this.lv.map(function (a) { return a.slice(); }),
+    p: this.sc.map(function (v, i) { return Math.floor(v - this.spent[i]); }, this),
+    v: this.vs.map(function (s) { return [s.id, Math.round(s.x), Math.round(s.y), s.r, +s.t.toFixed(2)]; }),
+    sk: this.sk, bs: this.bs, ba: +this.ba.toFixed(2), bk: this.bk, o: this.over ? 1 : 0,
+    u: this.units.map(function (u) { return [u.id, u.o, u.t, Math.round(u.x), Math.round(u.y), Math.ceil(u.hp), u.fl > 0 ? 1 : 0]; })
+  };
+};
+
+/* ================= Networking / app state ================= */
+var online = !!(window.firebase && CFG.databaseURL.indexOf('http') === 0), db = null;
+if (online) { try { firebase.initializeApp(CFG); db = firebase.database(); } catch (e) { online = false; } }
+
+var myId = Math.random().toString(36).slice(2, 10);
+var mode = null;            // 'solo' | 'online'
+var isHost = false, myIdx = 0, roomRef = null, code = '';
+var players = [null, null, null, null];
+var view = 'home';
+var sim = null, simTimer = null, simLast = 0, snapAcc = 0, spawnRef = null;
+var sel = 0;
+var isPub = false, cdVal = null, lobbyTimer = null, lobbyBeat = 0, lastCd = null;
+
+function show(v) {
+  view = v;
+  ['home', 'lobby', 'game'].forEach(function (s) { $(s).classList.toggle('hidden', s !== v); });
+}
+function setErr(m, info) { $('err').textContent = m || ''; $('err').style.color = info ? '#555' : ''; }
+function getName() { return ($('name').value || '').replace(/[<>]/g, '').trim().slice(0, 10) || 'Player'; }
+function genCode() { var L = 'ABCDEFGHJKLMNPQRSTUVWXYZ', c = ''; for (var i = 0; i < 4; i++) c += L[Math.floor(Math.random() * L.length)]; return c; }
+function needOnline() {
+  if (online) return false;
+  setErr(window.firebase ? 'Online play is not set up yet. Try "Practice alone".' : 'Could not load Firebase (blocked?). Try "Practice alone".');
+  return true;
+}
+
+function createRoom(pub) {
+  if (needOnline()) return;
+  var name = getName(), tries = 0;
+  (function attempt() {
+    var c = genCode(), r = db.ref('rooms/' + c);
+    r.child('host').transaction(function (cur) { return cur ? undefined : myId; }, function (err, ok) {
+      if (err) return setErr('Could not create room: ' + err.message);
+      if (!ok) return tries++ < 5 ? attempt() : setErr('Try again.');
+      r.update({ phase: 'lobby', pub: pub ? 1 : null, 'players/0': { id: myId, name: name } });
+      r.onDisconnect().remove();
+      if (pub) {
+        db.ref('lobbies/' + c).set({ n: 1, t: Date.now() });
+        db.ref('lobbies/' + c).onDisconnect().remove();
+      }
+      enterRoom(c, 0, true, !!pub);
+    });
+  })();
+}
+function joinRoom() {
+  if (needOnline()) return;
+  var c = $('code').value.toUpperCase().trim();
+  if (c.length !== 4) return setErr('Enter the 4-letter room code.');
+  tryJoin(c, getName(), function (err) { if (err) setErr(err); });
+}
+// cb(null) on success, cb(message) on failure
+function tryJoin(c, name, cb) {
+  var r = db.ref('rooms/' + c);
+  r.once('value', function (s) {
+    var v = s.val();
+    if (!v || !v.host) return cb('Room not found. Check the code.');
+    if (v.phase !== 'lobby') return cb('That game already started.');
+    (function claim(i) {
+      if (i > 3) return cb('Room is full (4 players max).');
+      r.child('players/' + i).transaction(function (cur) { return cur ? undefined : { id: myId, name: name }; }, function (err, ok) {
+        if (err) return cb(err.message);
+        if (!ok) return claim(i + 1);
+        r.child('players/' + i).onDisconnect().remove();
+        isPub = !!v.pub;
+        enterRoom(c, i, false, false);
+        cb(null);
+      });
+    })(0);
+  }, function (e) { cb('Could not join: ' + e.message); });
+}
+// Quick match: join the fullest open public lobby, or open a new one for others to find
+function quickMatch() {
+  if (needOnline()) return;
+  var name = getName();
+  setErr('Looking for a game…', true);
+  db.ref('lobbies').once('value', function (s) {
+    var v = s.val() || {}, now = Date.now();
+    var codes = Object.keys(v).filter(function (c) { return v[c].n < 4 && now - v[c].t < 30000; })
+      .sort(function (a, b) { return v[b].n - v[a].n; });
+    (function next(i) {
+      if (i >= codes.length) return createRoom(true);
+      tryJoin(codes[i], name, function (err) { if (err) next(i + 1); });
+    })(0);
+  }, function (e) { setErr('Could not search for games: ' + e.message); });
+}
+function lobbyTick() {
+  if (view !== 'lobby' || !isHost) return;
+  var n = players.filter(Boolean).length;
+  if (lobbyBeat++ % 5 === 0) db.ref('lobbies/' + code).set({ n: n, t: Date.now() });
+  var cd = lastCd;
+  if (n < 2) cd = null;
+  else { cd = cd === null ? 15 : cd - 1; if (n === 4 && cd > 3) cd = 3; }
+  if (cd !== lastCd) { lastCd = cd; roomRef.child('cd').set(cd); }
+  if (cd !== null && cd <= 0) { lastCd = null; db.ref('lobbies/' + code).remove(); hostStart(); }
+}
+function enterRoom(c, idx, host, pub) {
+  mode = 'online'; code = c; myIdx = idx; isHost = host; roomRef = db.ref('rooms/' + c); setErr('');
+  if (host) isPub = !!pub;
+  cdVal = null; lastCd = null; lobbyBeat = 0;
+  roomRef.child('cd').on('value', function (s) { cdVal = s.val(); renderLobby(); });
+  if (host && pub) lobbyTimer = setInterval(lobbyTick, 1000);
+  $('roomcode').textContent = c;
+  roomRef.child('players').on('value', function (s) {
+    var v = s.val() || {};
+    players = [0, 1, 2, 3].map(function (i) { return v[i] || null; });
+    renderLobby();
+  });
+  roomRef.child('host').on('value', function (s) { if (s.val() === null && !isHost) leaveWith('The host left the room.'); });
+  roomRef.child('phase').on('value', function (s) {
+    var p = s.val();
+    if (p === 'play' && view !== 'game') beginGame();
+    else if (p === 'lobby' && view !== 'lobby') { resetGame(); show('lobby'); renderLobby(); }
+  });
+  if (!host) roomRef.child('snap').on('value', function (s) {
+    var v = s.val();
+    if (v && view === 'game') applySnap(JSON.parse(v));
+  });
+  show('lobby');
+}
+function leaveWith(msg) {
+  if (roomRef) roomRef.off();
+  if (lobbyTimer) { clearInterval(lobbyTimer); lobbyTimer = null; }
+  roomRef = null; resetGame(); show('home'); setErr(msg);
+}
+function renderLobby() {
+  $('lobbylist').innerHTML = players.map(function (p, i) {
+    return p ? '<li><span style="color:' + COLORS[i] + '">● ' + esc(p.name) + (i === myIdx ? ' (you)' : '') + (i === 0 ? ' 👑' : '') + '</span><span class="muted">' + CNAMES[i] + '</span></li>' : '';
+  }).join('');
+  $('start').classList.toggle('hidden', !isHost || isPub);
+  $('lobbymsg').textContent = isPub
+    ? (cdVal !== null ? 'Game starts in ' + cdVal + '…' : 'Waiting for more players (need 2 or more)…')
+    : (isHost ? 'Start whenever everyone has joined.' : 'Waiting for the host to start…');
+}
+
+/* ================= Game start / stop ================= */
+function startSolo() {
+  mode = 'solo'; isHost = true; myIdx = 0; players = [{ name: getName() }, null, null, null];
+  beginGame();
+}
+function beginGame() {
+  resetGame();
+  show('game');
+  V = freshView();
+  if (isHost) {
+    var n = players.filter(Boolean).length || 1;
+    sim = new Sim(n);
+    if (mode === 'online') {
+      spawnRef = roomRef.child('spawns');
+      spawnRef.on('child_added', function (s) { var v = s.val() || {}; if (sim) { if (v.u !== undefined) sim.upgrade(v.p, v.u); else sim.spawn(v.p, v.t, v.x, v.y); } s.ref.remove(); });
+    }
+    simLast = performance.now(); snapAcc = 1;
+    simTimer = setInterval(tick, 33);
+  }
+}
+function tick() {
+  var now = performance.now(), dt = Math.min(0.1, (now - simLast) / 1000);
+  simLast = now; sim.step(dt); snapAcc += dt;
+  if (snapAcc >= 0.08 || sim.over) {
+    snapAcc = 0;
+    var s = sim.snap();
+    applySnap(s);
+    if (mode === 'online') roomRef.child('snap').set(JSON.stringify(s));
+    if (sim.over) { clearInterval(simTimer); simTimer = null; }
+  }
+}
+function resetGame() {
+  if (simTimer) clearInterval(simTimer);
+  simTimer = null; sim = null;
+  if (spawnRef) { spawnRef.off(); spawnRef = null; }
+  $('over').classList.add('hidden');
+}
+function hostStart() {
+  roomRef.child('cd').remove();
+  roomRef.child('spawns').remove();
+  roomRef.child('snap').remove();
+  roomRef.child('phase').set('play');
+}
+function playAgain() {
+  if (mode === 'solo') return beginGame();
+  roomRef.child('phase').set('lobby');
+}
+
+function sendSpawn(t, x, y) {
+  if (!V || V.over) return;
+  if (Math.hypot(x - GX, y - GY) >= SAFE && (V.e[myIdx] || 0) >= TYPES[t].cost) V.pend.push({ x: x, y: y, t: 0 });
+  if (mode === 'solo' || isHost) { if (sim) sim.spawn(myIdx, t, x, y); }
+  else roomRef.child('spawns').push({ p: myIdx, t: t, x: Math.round(x), y: Math.round(y) });
+}
+
+/* ================= Client view state ================= */
+var V = null;
+function freshView() {
+  return { g: 1, m: 1, e: [0, 0, 0, 0], s: [0, 0, 0, 0], p: [0, 0, 0, 0], l: [[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]], u: {}, rings: [], puffs: [], pend: [], vs: {}, blasts: [], sk: undefined, bs: 0, ba: 0, da: 0, hurtT: 0, over: false };
+}
+function applySnap(s) {
+  if (!V) return;
+  if (s.g < V.g) V.hurtT = 0.18;
+  V.g = s.g; V.m = s.m; V.e = s.e; V.s = s.s; V.p = s.p; V.l = s.l;
+  if (V.sk !== undefined && s.sk !== V.sk) V.rings.push({ t: 0 });
+  V.sk = s.sk;
+  if (s.bs !== V.bs) V.da = s.ba;
+  V.bs = s.bs; V.ba = s.ba;
+  var vseen = {}, vk;
+  (s.v || []).forEach(function (a) { vseen[a[0]] = 1; V.vs[a[0]] = { x: a[1], y: a[2], r: a[3], left: a[4], at: performance.now() }; });
+  for (vk in V.vs) if (!vseen[vk]) { var q = V.vs[vk]; V.blasts.push({ x: q.x, y: q.y, r: q.r, t: 0 }); delete V.vs[vk]; }
+  var seen = {}, id;
+  s.u.forEach(function (a) {
+    seen[a[0]] = 1;
+    var u = V.u[a[0]];
+    if (!u) u = V.u[a[0]] = { id: a[0], o: a[1], t: a[2], x: a[3], y: a[4], age: 0, mv: false };
+    u.tx = a[3]; u.ty = a[4]; u.hp = a[5]; u.fl = a[6];
+  });
+  for (id in V.u) if (!seen[id]) { V.puffs.push({ x: V.u[id].x, y: V.u[id].y, t: 0, c: COLORS[V.u[id].o] }); delete V.u[id]; }
+  if (s.o && !V.over) { V.over = true; showResults(); }
+}
+function showResults() {
+  var rows = [];
+  players.forEach(function (p, i) { if (p) rows.push({ i: i, name: p.name, sc: V.p[i] }); });
+  rows.sort(function (a, b) { return b.sc - a.sc; });
+  $('overtitle').textContent = '🏆 ' + rows[0].name + ' wins!';
+  $('overlist').innerHTML = rows.map(function (r, k) {
+    return '<li><span style="color:' + COLORS[r.i] + '">' + (k + 1) + '. ' + esc(r.name) + '</span><b>' + r.sc + '</b></li>';
+  }).join('');
+  $('again').classList.toggle('hidden', !isHost);
+  $('againmsg').textContent = isHost ? '' : 'Waiting for the host…';
+  $('over').classList.remove('hidden');
+}
+
+/* ================= Hand-sketch drawing ================= */
+var cv = $('cv'), ctx = cv.getContext('2d'), BT = 0, TM = 0;
+function rn(n) { var x = Math.sin(n * 12.9898 + BT * 78.233) * 43758.5453; return x - Math.floor(x) - 0.5; }
+function line(x1, y1, x2, y2, s, a) {
+  a = a || 1.2;
+  ctx.beginPath(); ctx.moveTo(x1 + rn(s) * a, y1 + rn(s + 1) * a);
+  ctx.quadraticCurveTo((x1 + x2) / 2 + rn(s + 2) * a * 2, (y1 + y2) / 2 + rn(s + 3) * a * 2, x2 + rn(s + 4) * a, y2 + rn(s + 5) * a);
+  ctx.stroke();
+}
+function circ(cx, cy, r, s, fill) {
+  var n = 12; ctx.beginPath();
+  for (var i = 0; i <= n + 1; i++) {
+    var an = i / n * Math.PI * 2, rr = r + rn(s + i) * r * 0.2;
+    var x = cx + Math.cos(an) * rr, y = cy + Math.sin(an) * rr;
+    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  if (fill) ctx.fill();
+  ctx.stroke();
+}
+var paper = (function () {
+  var c = document.createElement('canvas'); c.width = W; c.height = H;
+  var g = c.getContext('2d'), seed = 7;
+  function r() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+  g.fillStyle = '#f7f2e2'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(70,120,200,.16)'; g.lineWidth = 1;
+  for (var y = 28; y < H; y += 28) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  g.strokeStyle = 'rgba(200,80,80,.22)'; g.beginPath(); g.moveTo(36, 0); g.lineTo(36, H); g.stroke();
+  g.strokeStyle = 'rgba(70,110,50,.5)'; g.lineWidth = 1.5;
+  for (var i = 0; i < 40; i++) {
+    var x = 20 + r() * (W - 40), yy = 20 + r() * (H - 40);
+    if (Math.hypot(x - GX, yy - GY) < 110) continue;
+    for (var k = -1; k <= 1; k++) { g.beginPath(); g.moveTo(x + k * 4, yy); g.lineTo(x + k * 6, yy - 8 - r() * 4); g.stroke(); }
+  }
+  return c;
+})();
+
+function man(u) {
+  var x = u.x, y = u.y, c = COLORS[u.o], f = GX > x ? 1 : -1, s = u.id * 11 + 3;
+  var ph = TM * 9 + u.id, leg = u.mv ? Math.sin(ph) * 5 : 0, arm = u.mv ? Math.cos(ph) * 3 : 0;
+  var T = TYPES[u.t], pop = Math.min(1, u.age * 5);
+  ctx.save(); ctx.translate(x, y); ctx.scale(pop, pop); ctx.translate(-x, -y);
+  ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = c; ctx.fillStyle = '#f7f2e2';
+  circ(x, y - 21, 5, s, true);
+  line(x, y - 16, x, y - 6, s + 10, 0.8);
+  line(x, y - 6, x - 3 - leg, y, s + 20); line(x, y - 6, x + 3 + leg, y, s + 30);
+  line(x, y - 14, x - f * 5, y - 8 + arm, s + 40);
+  var sw = u.fl ? 5 : 0, hx = x + f * (7 + sw), hy = y - 11 + (u.fl ? -2 : arm);
+  line(x, y - 14, hx, hy, s + 50);
+  ctx.strokeStyle = '#333';
+  if (u.t === 0) {
+    var px = hx + f * 24, py = hy - 6;
+    line(hx - f * 8, hy + 2, px, py, s + 60, 0.8);
+    ctx.fillStyle = '#555'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - f * 5, py - 3); ctx.lineTo(px - f * 5, py + 3); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (u.t === 1) {
+    ctx.fillStyle = '#d8c9a3'; circ(hx + f * 2, hy - 1, 7.5, s + 60, true);
+    ctx.strokeStyle = c; line(hx + f * 2 - 5, hy - 1, hx + f * 2 + 5, hy - 1, s + 80, 0.5); line(hx + f * 2, hy - 6, hx + f * 2, hy + 4, s + 90, 0.5);
+  } else {
+    ctx.beginPath(); ctx.moveTo(hx + f * 2, hy - 10); ctx.quadraticCurveTo(hx + f * 9, hy, hx + f * 2, hy + 10); ctx.stroke();
+    ctx.lineWidth = 1; line(hx + f * 2, hy - 10, hx + f * 2, hy + 10, s + 100, 0.4);
+  }
+  ctx.restore();
+  var lvl = V.l[u.o][u.t], mx = T.hp * mult(lvl);
+  if (u.hp < mx - 0.5) {
+    ctx.lineWidth = 2; ctx.strokeStyle = '#999'; ctx.beginPath(); ctx.moveTo(x - 8, y - 31); ctx.lineTo(x + 8, y - 31); ctx.stroke();
+    ctx.strokeStyle = '#d33'; ctx.beginPath(); ctx.moveTo(x - 8, y - 31); ctx.lineTo(x - 8 + 16 * Math.max(0, u.hp) / mx, y - 31); ctx.stroke();
+  }
+  if (lvl > 1) {
+    ctx.fillStyle = c; ctx.font = 'bold 9px "Segoe Print","Comic Sans MS",cursive'; ctx.textAlign = 'center';
+    ctx.fillText(lvl === 2 ? '★★' : '★★★', x, y - 34); ctx.textAlign = 'left';
+  }
+}
+
+// Fire Dragon outline (front view): horns, spread wings, body, clawed feet
+var GZ = [[-36,-124],[-24,-100],[-14,-106],[0,-110],[14,-106],[24,-100],[36,-124],[34,-84],[26,-66],[40,-52],[62,-98],[96,-60],[84,-56],[90,-30],[74,-30],[76,-4],[60,-20],[50,-10],[56,30],[62,70],[80,98],[58,104],[24,100],[14,72],[0,68],[-14,72],[-24,100],[-58,104],[-80,98],[-62,70],[-56,30],[-50,-10],[-60,-20],[-76,-4],[-74,-30],[-90,-30],[-84,-56],[-96,-60],[-62,-98],[-40,-52],[-26,-66],[-34,-84]];
+function dragon() {
+  var sh = V.hurtT > 0 ? (rn(5) * 6) : 0, sc = 1 + Math.sin(TM * 2) * 0.012;
+  ctx.save(); ctx.translate(GX + sh, GY - 4); ctx.scale(sc, sc);
+  var pts = GZ.map(function (p, i) { return [p[0] + rn(i + 300) * 3, p[1] + rn(i + 400) * 3]; });
+  function path() { ctx.beginPath(); pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath(); }
+  path(); ctx.fillStyle = 'rgba(240,130,70,.6)'; ctx.fill();
+  ctx.save(); path(); ctx.clip();
+  ctx.strokeStyle = V.hurtT > 0 ? 'rgba(255,255,255,.85)' : 'rgba(170,45,25,.5)'; ctx.lineWidth = 2;
+  for (var k = -240; k < 140; k += 8) { ctx.beginPath(); ctx.moveTo(k, -130); ctx.lineTo(k + 150, 130); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = '#4a2418'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
+  path(); ctx.stroke();
+  ctx.save(); ctx.translate(rn(900) * 1.5, rn(901) * 1.5); ctx.lineWidth = 1.5; path(); ctx.stroke(); ctx.restore();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = '#4a2418'; ctx.fillStyle = '#ffd23c';
+  circ(-13, -88, 6, 500, true); circ(13, -88, 6, 520, true);
+  ctx.fillStyle = '#222'; line(-13, -94, -13, -82, 540, 0.6); line(13, -94, 13, -82, 560, 0.6);
+  line(-24, -100, -6, -92, 580, 1); line(24, -100, 6, -92, 590, 1);
+  line(-4, -78, -2, -76, 595, 0.3); line(4, -78, 2, -76, 596, 0.3);
+  ctx.beginPath(); ctx.moveTo(-18, -70);
+  for (var t = 0; t < 8; t++) ctx.lineTo(-18 + t * 4.5 + 2.2, t % 2 ? -70 : -63);
+  ctx.lineTo(18, -70); ctx.stroke();
+  ctx.lineWidth = 1.8;
+  for (var b = 0; b < 5; b++) line(-26 + b * 2, -2 + b * 18, 26 - b * 2, 4 + b * 18, 610 + b, 1.5);
+  line(40, -52, 90, -45, 640, 1.5); line(40, -52, 80, -80, 650, 1.5); line(-40, -52, -90, -45, 660, 1.5); line(-40, -52, -80, -80, 670, 1.5);
+  ctx.restore();
+}
+
+function draw() {
+  ctx.setTransform(2, 0, 0, 2, 0, 0);
+  ctx.drawImage(paper, 0, 0);
+  if (!V) return;
+  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(190,60,60,.45)'; ctx.setLineDash([4, 6]);
+  ctx.beginPath(); ctx.arc(GX, GY, SAFE, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  V.rings.forEach(function (r) {
+    var p = r.t / 0.5; ctx.strokeStyle = 'rgba(217,100,20,' + (1 - p) + ')'; ctx.lineWidth = 3; circ(GX, GY, 60 + p * 75, 700, false);
+  });
+  if (V.bs === 1) {
+    ctx.strokeStyle = 'rgba(220,40,40,.7)'; ctx.lineWidth = 3; ctx.setLineDash([8, 8]);
+    ctx.beginPath(); ctx.moveTo(GX, GY); ctx.lineTo(GX + Math.cos(V.da) * 430, GY + Math.sin(V.da) * 430); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#d33'; ctx.font = 'bold 22px "Segoe Print","Comic Sans MS",cursive';
+    ctx.fillText('!', GX + Math.cos(V.da) * 150, GY + Math.sin(V.da) * 150);
+  }
+  var nowMs = performance.now(), mk;
+  for (mk in V.vs) {
+    var q = V.vs[mk], left = Math.max(0, q.left - (nowMs - q.at) / 1000), pr = 1 - left / 2;
+    ctx.fillStyle = 'rgba(220,60,30,' + (0.10 + 0.07 * Math.sin(TM * 12)) + ')';
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(220,60,30,.3)';
+    ctx.beginPath(); ctx.arc(q.x, q.y, q.r * pr, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,40,20,.9)'; ctx.lineWidth = 2.5; ctx.setLineDash([6, 5]);
+    circ(q.x, q.y, q.r, +mk * 13, false); ctx.setLineDash([]);
+    ctx.lineWidth = 3; line(q.x - 7, q.y - 7, q.x + 7, q.y + 7, +mk * 13 + 1, 0.8); line(q.x + 7, q.y - 7, q.x - 7, q.y + 7, +mk * 13 + 2, 0.8);
+  }
+  var list = [], id;
+  for (id in V.u) list.push(V.u[id]);
+  list.sort(function (a, b) { return a.y - b.y; });
+  var beforeG = list.filter(function (u) { return u.y < GY; }), afterG = list.filter(function (u) { return u.y >= GY; });
+  beforeG.forEach(man);
+  dragon();
+  afterG.forEach(man);
+  list.forEach(function (u) {
+    if (u.t === 2 && u.fl) {
+      var d = Math.hypot(GX - u.x, GY - u.y), q = ((TM * 4 + u.id) % 1) * 0.5 + 0.3, ax = u.x + (GX - u.x) * q, ay = u.y - 10 + (GY - 10 - u.y + 10) * q;
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5; line(ax, ay, ax + (GX - u.x) / d * 8, ay + (GY - u.y) / d * 8, u.id, 0.3);
+    }
+  });
+  if (V.bs === 2) {
+    var ex = GX + Math.cos(V.da) * 430, ey = GY + Math.sin(V.da) * 430;
+    ctx.lineJoin = 'round';
+    [['#e8481c', 12], ['#ffd23c', 5]].forEach(function (c, ci) {
+      ctx.strokeStyle = c[0]; ctx.lineWidth = c[1]; ctx.beginPath(); ctx.moveTo(GX, GY);
+      for (var k = 1; k <= 14; k++) {
+        var t = k / 14, nx = -Math.sin(V.da), ny = Math.cos(V.da), j = rn(k * 7 + ci * 50) * 14;
+        ctx.lineTo(GX + (ex - GX) * t + nx * j, GY + (ey - GY) * t + ny * j);
+      }
+      ctx.stroke();
+    });
+  }
+  V.blasts.forEach(function (b) {
+    var p = b.t / 0.6;
+    ctx.globalAlpha = 1 - p; ctx.strokeStyle = '#8a2a10'; ctx.lineWidth = 3;
+    ctx.fillStyle = '#ffb02e'; circ(b.x, b.y, b.r * (0.7 + 0.3 * p), 1200, true);
+    ctx.fillStyle = '#ff5a1f'; circ(b.x, b.y, b.r * 0.55, 1300, true);
+    for (var k = 0; k < 8; k++) {
+      var an = k / 8 * Math.PI * 2 + 0.3, r1 = b.r * (0.8 + p * 0.5), r2 = r1 + 8 + b.r * 0.15;
+      line(b.x + Math.cos(an) * r1, b.y + Math.sin(an) * r1, b.x + Math.cos(an) * r2, b.y + Math.sin(an) * r2, 1400 + k, 1);
+    }
+    ctx.globalAlpha = 1;
+  });
+  V.pend.forEach(function (p) {
+    ctx.strokeStyle = COLORS[myIdx]; ctx.globalAlpha = 1 - p.t / 0.5; ctx.lineWidth = 2;
+    circ(p.x, p.y - 4, 4 + p.t * 20, 900, false); ctx.globalAlpha = 1;
+  });
+  V.puffs.forEach(function (p) {
+    ctx.strokeStyle = p.c; ctx.globalAlpha = 1 - p.t / 0.6; ctx.lineWidth = 2.5;
+    line(p.x - 5, p.y - 20, p.x + 5, p.y - 10, 800, 0.5); line(p.x + 5, p.y - 20, p.x - 5, p.y - 10, 801, 0.5);
+    ctx.globalAlpha = 1;
+  });
+
+  // HUD
+  var fx = 200, fw = 400, fr = V.g / V.m;
+  ctx.fillStyle = '#e04a3a'; ctx.fillRect(fx, 12, fw * fr, 16);
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 2.5;
+  line(fx, 12, fx + fw, 12, 1000, 1); line(fx + fw, 12, fx + fw, 28, 1001, 1); line(fx + fw, 28, fx, 28, 1002, 1); line(fx, 28, fx, 12, 1003, 1);
+  ctx.fillStyle = '#222'; ctx.font = 'bold 13px "Segoe Print","Comic Sans MS",cursive'; ctx.textAlign = 'center';
+  ctx.fillText('FIRE DRAGON  ' + V.g + ' / ' + V.m, GX, 42);
+  ctx.textAlign = 'left';
+  var rows = [];
+  players.forEach(function (p, i) { if (p) rows.push({ i: i, name: p.name, sc: V.p[i] }); });
+  rows.sort(function (a, b) { return b.sc - a.sc; });
+  ctx.font = 'bold 14px "Segoe Print","Comic Sans MS",cursive';
+  rows.forEach(function (r, k) {
+    ctx.fillStyle = COLORS[r.i];
+    ctx.fillText((r.i === myIdx ? '► ' : '') + r.name + ': ' + r.sc, 14, 22 + k * 19);
+  });
+}
+
+var lastFrame = 0;
+function frame(now) {
+  var dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+  TM = now / 1000; BT = Math.floor(now / 140);
+  if (view === 'game' && V) {
+    var id, u;
+    for (id in V.u) {
+      u = V.u[id];
+      // keep walking toward the dragon between snapshots so movement stays smooth
+      var T = TYPES[u.t], gx = GX - u.tx, gy = GY - u.ty, gd = Math.hypot(gx, gy);
+      if (gd > T.rng + 1) { var st = Math.min(T.sp * dt, gd - T.rng); u.tx += gx / gd * st; u.ty += gy / gd * st; }
+      var dx = u.tx - u.x, dy = u.ty - u.y;
+      u.mv = Math.abs(dx) + Math.abs(dy) > 0.8;
+      var k = Math.min(1, dt * 10); u.x += dx * k; u.y += dy * k; u.age += dt;
+    }
+    V.hurtT = Math.max(0, V.hurtT - dt);
+    V.rings.forEach(function (r) { r.t += dt; }); V.rings = V.rings.filter(function (r) { return r.t < 0.5; });
+    V.pend.forEach(function (p) { p.t += dt; }); V.pend = V.pend.filter(function (p) { return p.t < 0.5; });
+    V.blasts.forEach(function (b) { b.t += dt; }); V.blasts = V.blasts.filter(function (b) { return b.t < 0.6; });
+    V.puffs.forEach(function (p) { p.t += dt; }); V.puffs = V.puffs.filter(function (p) { return p.t < 0.6; });
+    if (V.bs === 2) V.da += (V.ba - V.da) * Math.min(1, dt * 10); else if (V.bs === 1) V.da = V.ba;
+    draw();
+    var en = V.e[myIdx] || 0;
+    $('energy').firstElementChild.style.width = en + '%';
+    $('entxt').textContent = '⚡ ' + Math.floor(en) + '/100';
+    $('energy').firstElementChild.style.background = COLORS[myIdx];
+    Array.prototype.forEach.call(document.querySelectorAll('#bar .unit'), function (b) { b.classList.toggle('poor', en < TYPES[+b.dataset.t].cost); });
+    var pts = V.p[myIdx] || 0;
+    $('pts').textContent = 'Your points: ' + pts + '  (damage dealt ' + (V.s[myIdx] || 0) + ', minus upgrades)';
+    Array.prototype.forEach.call(document.querySelectorAll('#bar .up'), function (b) {
+      var t = +b.dataset.u, L = V.l[myIdx][t];
+      b.disabled = L >= 3;
+      b.classList.toggle('poor', L < 3 && pts < UPCOST[L]);
+      var txt = L >= 3 ? 'MAX ★★★' : 'Upgrade Lv' + L + '→' + (L + 1) + ' · ' + UPCOST[L] + ' pts';
+      if (b.textContent !== txt) b.textContent = txt;
+    });
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ================= Input ================= */
+function selType(t) {
+  sel = t;
+  Array.prototype.forEach.call(document.querySelectorAll('#bar .unit'), function (b) { b.classList.toggle('sel', +b.dataset.t === t); });
+}
+Array.prototype.forEach.call(document.querySelectorAll('#bar .unit'), function (b) { b.onclick = function () { selType(+b.dataset.t); }; });
+Array.prototype.forEach.call(document.querySelectorAll('#bar .up'), function (b) { b.onclick = function () { sendUpgrade(+b.dataset.u); }; });
+function sendUpgrade(t) {
+  if (!V || V.over) return;
+  if (mode === 'solo' || isHost) { if (sim) sim.upgrade(myIdx, t); }
+  else roomRef.child('spawns').push({ p: myIdx, u: t });
+}
+document.addEventListener('keydown', function (e) { if (view === 'game' && e.key >= '1' && e.key <= '3') selType(+e.key - 1); });
+cv.addEventListener('pointerdown', function (e) {
+  e.preventDefault();
+  var r = cv.getBoundingClientRect();
+  sendSpawn(sel, (e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H);
+});
+$('create').onclick = function () { createRoom(false); };
+$('quick').onclick = quickMatch;
+$('join').onclick = joinRoom;
+$('solo').onclick = startSolo;
+$('start').onclick = hostStart;
+$('again').onclick = playAgain;
+})();
+</script>
+</body>
+</html>
