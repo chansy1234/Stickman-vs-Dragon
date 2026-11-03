@@ -45,11 +45,35 @@
   #energy div { height:100%; width:50%; background:#f3b73c; }
   #entxt { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.85rem; font-weight:700; color:#111; text-shadow:0 0 3px #fff, 0 0 3px #fff; pointer-events:none; }
   #hint { font-size:.8rem; margin-top:6px; }
+  /* optional tip for upright phones while playing; the game stays fully playable in portrait */
+  #rotate { display:none; width:100%; max-width:900px; align-items:center; gap:8px; padding:6px 10px; margin-bottom:8px; border:2px dashed var(--ink); border-radius:10px; font-size:.85rem; }
+  #rotate span { flex:1 1 auto; }
+  #rotate button { width:auto; padding:5px 10px; font-size:.85rem; }
+  @media (orientation:portrait) and (max-width:700px) { body.ingame #rotate:not(.dismissed) { display:flex; } }
+  /* landscape phone: canvas fills the height, controls sit in a column on the right */
+  @media (orientation:landscape) and (max-height:520px) {
+    body { padding:4px 6px; }
+    h1 { display:none; }
+    #game { max-width:none; display:flex; gap:8px; align-items:flex-start; }
+    .stage { flex:1 1 auto; min-width:0; display:flex; justify-content:center; }
+    canvas { width:min(100%, calc((100vh - 16px) * 1.6)); width:min(100%, calc((100dvh - 16px) * 1.6)); }
+    #bar { flex:0 0 165px; flex-direction:column; flex-wrap:nowrap; align-items:stretch; margin-top:0; gap:6px; }
+    #bar .ucol { flex:0 0 auto; }
+    #bar .unit { padding:4px; font-size:.85rem; }
+    #bar .up { font-size:.7rem; padding:3px 2px; }
+    #pts { flex:0 0 auto; font-size:.75rem; }
+    #hint { display:none; }
+  }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 </head>
 <body>
+<div id="rotate">
+  <span>💡 Turn your phone sideways for a bigger battlefield.</span>
+  <button id="fs">Landscape</button>
+  <button id="fsx" class="alt" aria-label="Hide tip">✕</button>
+</div>
 <h1>⚔️ Stickman vs Dragon</h1>
 
 <div id="home" class="card">
@@ -259,6 +283,7 @@ var isPub = false, cdVal = null, lobbyTimer = null, lobbyBeat = 0, lastCd = null
 
 function show(v) {
   view = v;
+  document.body.classList.toggle('ingame', v === 'game');
   ['home', 'lobby', 'game'].forEach(function (s) { $(s).classList.toggle('hidden', s !== v); });
 }
 function setErr(m, info) { $('err').textContent = m || ''; $('err').style.color = info ? '#555' : ''; }
@@ -724,6 +749,13 @@ cv.addEventListener('pointerdown', function (e) {
 });
 $('create').onclick = function () { createRoom(false); };
 $('quick').onclick = quickMatch;
+// Android Chrome can lock landscape once the page is full screen (iPhones can't; they need the phone turned by hand)
+$('fsx').onclick = function () { $('rotate').classList.add('dismissed'); };
+$('fs').onclick = function () {
+  var el = document.documentElement;
+  var go = el.requestFullscreen ? el.requestFullscreen() : Promise.reject();
+  Promise.resolve(go).then(function () { return screen.orientation.lock('landscape'); }).catch(function () {});
+};
 $('join').onclick = joinRoom;
 $('solo').onclick = startSolo;
 $('start').onclick = hostStart;
