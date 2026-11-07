@@ -42,7 +42,8 @@
   #bar .unit.poor { opacity:.5; }
   #energy { flex:1 1 100%; height:18px; border:3px solid var(--ink); border-radius:10px; overflow:hidden; background:#fff; }
   #energy { position:relative; height:22px; }
-  #energy div { height:100%; width:50%; background:#f3b73c; }
+  #energy div { position:absolute; left:0; top:0; bottom:0; width:50%; background:#f3b73c; }
+  #hint .short { display:none; }
   #entxt { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.85rem; font-weight:700; color:#111; text-shadow:0 0 3px #fff, 0 0 3px #fff; pointer-events:none; }
   #hint { font-size:.8rem; margin-top:6px; }
   /* optional tip for upright phones while playing; the game stays fully playable in portrait */
@@ -64,12 +65,15 @@
     #bar .ucol { flex:0 0 auto; }
     #bar .unit { padding:4px; font-size:.85rem; }
     #bar .up { font-size:.7rem; padding:3px 2px; }
-    #pts { flex:0 0 auto; font-size:.75rem; order:-1; }
-    /* in this layout the energy bar is drawn on the battlefield instead (see draw()) */
-    #energy { display:none; }
+    /* column order: 3 units, energy bar, points, game guide */
+    #energy { flex:0 0 22px; min-height:22px; }
+    #pts { flex:0 0 auto; font-size:.72rem; }
+    #hint { flex:0 0 auto; margin-top:0; font-size:.62rem; line-height:1.15; }
+    #hint .long { display:none; }
+    #hint .short { display:inline; }
     #bar { max-height:calc(100vh - 16px); max-height:calc(100dvh - 16px); overflow-y:auto; }
-    #bar .unit small { font-size:.65rem; }
-    #hint { display:none; }
+    #bar button { border-width:2px; }
+    #bar .unit small { font-size:.62rem; }
     #snd { top:auto; right:auto; bottom:6px; left:6px; }
   }
 </style>
@@ -119,10 +123,10 @@
     <div class="ucol"><button class="unit sel" data-t="0">1 · Pikeman<small>⚡10 · long spear</small></button><button class="up" data-u="0"></button></div>
     <div class="ucol"><button class="unit" data-t="1">2 · Shield<small>⚡20 · tank</small></button><button class="up" data-u="1"></button></div>
     <div class="ucol"><button class="unit" data-t="2">3 · Archer<small>⚡15 · ranged</small></button><button class="up" data-u="2"></button></div>
-    <div id="pts"></div>
     <div id="energy"><div></div><span id="entxt">⚡ 0/100</span></div>
+    <div id="pts"></div>
+    <div id="hint" class="muted center"><span class="long">Click or tap the page to send a stickman (not inside the dotted circle). Each point of damage you deal is 1 point. Upgrades cost points, so they must pay for themselves.</span><span class="short">Tap the field to send a stickman (not in the dotted circle). Damage = points; upgrades cost points.</span></div>
   </div>
-  <div id="hint" class="muted center">Click or tap the page to send a stickman (not inside the dotted circle). Each point of damage you deal is 1 point. Upgrades cost points, so they must pay for themselves.</div>
 </div>
 
 <script>
@@ -739,17 +743,6 @@ function draw() {
     ctx.fillStyle = COLORS[r.i];
     ctx.fillText((r.i === myIdx ? '► ' : '') + r.name + ': ' + r.sc, 14, 22 + k * 19);
   });
-  // energy bar drawn on the field when the page uses the sideways (touch landscape) layout
-  if (compactMQ.matches) {
-    var en2 = V.e[myIdx] || 0, ex = 250, ew = 300, ey = H - 26;
-    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(ex, ey, ew, 18);
-    ctx.fillStyle = COLORS[myIdx]; ctx.fillRect(ex, ey, ew * en2 / 100, 18);
-    ctx.strokeStyle = '#222'; ctx.lineWidth = 2.5;
-    line(ex, ey, ex + ew, ey, 1100, 1); line(ex + ew, ey, ex + ew, ey + 18, 1101, 1); line(ex + ew, ey + 18, ex, ey + 18, 1102, 1); line(ex, ey + 18, ex, ey, 1103, 1);
-    ctx.fillStyle = '#111'; ctx.font = 'bold 12px "Segoe Print","Comic Sans MS",cursive'; ctx.textAlign = 'center';
-    ctx.fillText('⚡ ' + Math.floor(en2) + '/100', ex + ew / 2, ey + 13);
-    ctx.textAlign = 'left';
-  }
 }
 
 var lastFrame = 0;
@@ -783,7 +776,9 @@ function frame(now) {
     $('energy').firstElementChild.style.background = COLORS[myIdx];
     Array.prototype.forEach.call(document.querySelectorAll('#bar .unit'), function (b) { b.classList.toggle('poor', en < TYPES[+b.dataset.t].cost); });
     var pts = V.p[myIdx] || 0;
-    $('pts').textContent = 'Your points: ' + pts + '  (damage dealt ' + (V.s[myIdx] || 0) + ', minus upgrades)';
+    $('pts').textContent = compactMQ.matches
+      ? 'Points: ' + pts + ' (dmg ' + (V.s[myIdx] || 0) + ')'
+      : 'Your points: ' + pts + '  (damage dealt ' + (V.s[myIdx] || 0) + ', minus upgrades)';
     Array.prototype.forEach.call(document.querySelectorAll('#bar .up'), function (b) {
       var t = +b.dataset.u, L = V.l[myIdx][t];
       b.disabled = L >= 3;
