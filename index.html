@@ -65,8 +65,8 @@
     #bar .unit { padding:4px; font-size:.85rem; }
     #bar .up { font-size:.7rem; padding:3px 2px; }
     #pts { flex:0 0 auto; font-size:.75rem; order:-1; }
-    /* energy bar goes first in the column so it is never cut off or collapsed */
-    #energy { flex:0 0 22px; order:-2; }
+    /* in this layout the energy bar is drawn on the battlefield instead (see draw()) */
+    #energy { display:none; }
     #bar { max-height:calc(100vh - 16px); max-height:calc(100dvh - 16px); overflow-y:auto; }
     #bar .unit small { font-size:.65rem; }
     #hint { display:none; }
@@ -650,6 +650,7 @@ function dragon() {
   ctx.restore();
 }
 
+var compactMQ = window.matchMedia('(orientation:landscape) and (max-height:520px), (orientation:landscape) and (pointer:coarse)');
 function draw() {
   ctx.setTransform(2, 0, 0, 2, 0, 0);
   ctx.drawImage(paper, 0, 0);
@@ -738,6 +739,17 @@ function draw() {
     ctx.fillStyle = COLORS[r.i];
     ctx.fillText((r.i === myIdx ? '► ' : '') + r.name + ': ' + r.sc, 14, 22 + k * 19);
   });
+  // energy bar drawn on the field when the page uses the sideways (touch landscape) layout
+  if (compactMQ.matches) {
+    var en2 = V.e[myIdx] || 0, ex = 250, ew = 300, ey = H - 26;
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fillRect(ex, ey, ew, 18);
+    ctx.fillStyle = COLORS[myIdx]; ctx.fillRect(ex, ey, ew * en2 / 100, 18);
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 2.5;
+    line(ex, ey, ex + ew, ey, 1100, 1); line(ex + ew, ey, ex + ew, ey + 18, 1101, 1); line(ex + ew, ey + 18, ex, ey + 18, 1102, 1); line(ex, ey + 18, ex, ey, 1103, 1);
+    ctx.fillStyle = '#111'; ctx.font = 'bold 12px "Segoe Print","Comic Sans MS",cursive'; ctx.textAlign = 'center';
+    ctx.fillText('⚡ ' + Math.floor(en2) + '/100', ex + ew / 2, ey + 13);
+    ctx.textAlign = 'left';
+  }
 }
 
 var lastFrame = 0;
