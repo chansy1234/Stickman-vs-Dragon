@@ -49,20 +49,24 @@
   #rotate { display:none; width:100%; max-width:900px; align-items:center; gap:8px; padding:6px 10px; margin-bottom:8px; border:2px dashed var(--ink); border-radius:10px; font-size:.85rem; }
   #rotate span { flex:1 1 auto; }
   #rotate button { width:auto; padding:5px 10px; font-size:.85rem; }
-  @media (orientation:portrait) and (max-width:700px) { body.ingame #rotate:not(.dismissed) { display:flex; } }
+  @media (orientation:portrait) and (max-width:700px), (orientation:portrait) and (pointer:coarse) { body.ingame #rotate:not(.dismissed) { display:flex; } }
+  #snd { position:fixed; top:6px; right:6px; z-index:60; display:flex; gap:4px; }
+  #snd button { width:auto; padding:2px 7px; font-size:1rem; background:#fffdf5; border-width:2px; }
+  #snd button.off { opacity:.45; text-decoration:line-through; }
   /* landscape phone: canvas fills the height, controls sit in a column on the right */
-  @media (orientation:landscape) and (max-height:520px) {
+  @media (orientation:landscape) and (max-height:520px), (orientation:landscape) and (pointer:coarse) {
     body { padding:4px 6px; }
     h1 { display:none; }
     #game { max-width:none; display:flex; gap:8px; align-items:flex-start; }
     .stage { flex:1 1 auto; min-width:0; display:flex; justify-content:center; }
-    canvas { width:min(100%, calc((100vh - 16px) * 1.6)); width:min(100%, calc((100dvh - 16px) * 1.6)); }
+    canvas { width:min(100%, calc((100vh - 16px) * 1.6), 1300px); width:min(100%, calc((100dvh - 16px) * 1.6), 1300px); }
     #bar { flex:0 0 165px; flex-direction:column; flex-wrap:nowrap; align-items:stretch; margin-top:0; gap:6px; }
     #bar .ucol { flex:0 0 auto; }
     #bar .unit { padding:4px; font-size:.85rem; }
     #bar .up { font-size:.7rem; padding:3px 2px; }
     #pts { flex:0 0 auto; font-size:.75rem; }
     #hint { display:none; }
+    #snd { top:auto; right:auto; bottom:6px; left:6px; }
   }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -74,6 +78,7 @@
   <button id="fs">Landscape</button>
   <button id="fsx" class="alt" aria-label="Hide tip">✕</button>
 </div>
+<div id="snd"><button id="mus" aria-label="Music on/off">🎵</button><button id="sfxb" aria-label="Sound effects on/off">🔊</button></div>
 <h1>⚔️ Stickman vs Dragon</h1>
 
 <div id="home" class="card">
@@ -368,7 +373,7 @@ function enterRoom(c, idx, host, pub) {
   mode = 'online'; code = c; myIdx = idx; isHost = host; roomRef = db.ref('rooms/' + c); setErr('');
   if (host) isPub = !!pub;
   cdVal = null; lastCd = null; lobbyBeat = 0;
-  roomRef.child('cd').on('value', function (s) { cdVal = s.val(); renderLobby(); });
+  roomRef.child('cd').on('value', function (s) { cdVal = s.val(); renderLobby(); if (cdVal !== null && cdVal > 0 && cdVal <= 3) sfx('tick'); });
   if (host && pub) lobbyTimer = setInterval(lobbyTick, 1000);
   $('roomcode').textContent = c;
   roomRef.child('players').on('value', function (s) {
@@ -411,6 +416,7 @@ function startSolo() {
 function beginGame() {
   resetGame();
   show('game');
+  sfx('start');
   V = freshView();
   if (isHost) {
     var n = players.filter(Boolean).length || 1;
@@ -453,7 +459,8 @@ function playAgain() {
 
 function sendSpawn(t, x, y) {
   if (!V || V.over) return;
-  if (Math.hypot(x - GX, y - GY) >= SAFE && (V.e[myIdx] || 0) >= TYPES[t].cost) V.pend.push({ x: x, y: y, t: 0 });
+  if (Math.hypot(x - GX, y - GY) >= SAFE && (V.e[myIdx] || 0) >= TYPES[t].cost) { V.pend.push({ x: x, y: y, t: 0 }); sfx('spawn' + t); }
+  else sfx('nope');
   if (mode === 'solo' || isHost) { if (sim) sim.spawn(myIdx, t, x, y); }
   else roomRef.child('spawns').push({ p: myIdx, t: t, x: Math.round(x), y: Math.round(y) });
 }
@@ -461,28 +468,33 @@ function sendSpawn(t, x, y) {
 /* ================= Client view state ================= */
 var V = null;
 function freshView() {
-  return { g: 1, m: 1, e: [0, 0, 0, 0], s: [0, 0, 0, 0], p: [0, 0, 0, 0], l: [[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]], u: {}, rings: [], puffs: [], pend: [], vs: {}, blasts: [], sk: undefined, bs: 0, ba: 0, da: 0, hurtT: 0, over: false };
+  return { g: 1, m: 1, e: [0, 0, 0, 0], s: [0, 0, 0, 0], p: [0, 0, 0, 0], l: [[1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1]], u: {}, rings: [], puffs: [], pend: [], vs: {}, blasts: [], roarT: 0, mouth: 0, sk: undefined, bs: 0, ba: 0, da: 0, hurtT: 0, over: false };
 }
 function applySnap(s) {
   if (!V) return;
-  if (s.g < V.g) V.hurtT = 0.18;
+  if (s.g < V.g) { V.hurtT = 0.18; sfx('hit', 0.5); }
+  var lvSum = function (l) { return l[myIdx][0] + l[myIdx][1] + l[myIdx][2]; };
+  if (lvSum(s.l) > lvSum(V.l)) sfx('upgrade');
   V.g = s.g; V.m = s.m; V.e = s.e; V.s = s.s; V.p = s.p; V.l = s.l;
-  if (V.sk !== undefined && s.sk !== V.sk) V.rings.push({ t: 0 });
+  if (V.sk !== undefined && s.sk !== V.sk) { V.rings.push({ t: 0 }); V.roarT = 0.5; sfx('stomp'); }
   V.sk = s.sk;
-  if (s.bs !== V.bs) V.da = s.ba;
+  if (s.bs !== V.bs) { V.da = s.ba; if (s.bs === 1) sfx('warn'); else if (s.bs === 2) sfx('breath'); }
   V.bs = s.bs; V.ba = s.ba;
   var vseen = {}, vk;
-  (s.v || []).forEach(function (a) { vseen[a[0]] = 1; V.vs[a[0]] = { x: a[1], y: a[2], r: a[3], left: a[4], at: performance.now() }; });
-  for (vk in V.vs) if (!vseen[vk]) { var q = V.vs[vk]; V.blasts.push({ x: q.x, y: q.y, r: q.r, t: 0 }); delete V.vs[vk]; }
+  (s.v || []).forEach(function (a) { vseen[a[0]] = 1; if (!V.vs[a[0]]) sfx('vwarn', 0.8); V.vs[a[0]] = { x: a[1], y: a[2], r: a[3], left: a[4], at: performance.now() }; });
+  for (vk in V.vs) if (!vseen[vk]) { var q = V.vs[vk]; V.blasts.push({ x: q.x, y: q.y, r: q.r, t: 0 }); sfx('blast', q.r / 95); delete V.vs[vk]; }
   var seen = {}, id;
   s.u.forEach(function (a) {
     seen[a[0]] = 1;
     var u = V.u[a[0]];
-    if (!u) u = V.u[a[0]] = { id: a[0], o: a[1], t: a[2], x: a[3], y: a[4], age: 0, mv: false };
+    if (!u) {
+      u = V.u[a[0]] = { id: a[0], o: a[1], t: a[2], x: a[3], y: a[4], age: 0, mv: false };
+      if (a[1] !== myIdx) sfx('spawn' + a[2], 0.35);
+    }
     u.tx = a[3]; u.ty = a[4]; u.hp = a[5]; u.fl = a[6];
   });
-  for (id in V.u) if (!seen[id]) { V.puffs.push({ x: V.u[id].x, y: V.u[id].y, t: 0, c: COLORS[V.u[id].o] }); delete V.u[id]; }
-  if (s.o && !V.over) { V.over = true; showResults(); }
+  for (id in V.u) if (!seen[id]) { V.puffs.push({ x: V.u[id].x, y: V.u[id].y, t: 0, c: COLORS[V.u[id].o] }); sfx('death', 0.5); delete V.u[id]; }
+  if (s.o && !V.over) { V.over = true; showResults(); sfx('win'); }
 }
 function showResults() {
   var rows = [];
@@ -571,10 +583,20 @@ function man(u) {
 
 // Fire Dragon outline (front view): horns, spread wings, body, clawed feet
 var GZ = [[-36,-124],[-24,-100],[-14,-106],[0,-110],[14,-106],[24,-100],[36,-124],[34,-84],[26,-66],[40,-52],[62,-98],[96,-60],[84,-56],[90,-30],[74,-30],[76,-4],[60,-20],[50,-10],[56,30],[62,70],[80,98],[58,104],[24,100],[14,72],[0,68],[-14,72],[-24,100],[-58,104],[-80,98],[-62,70],[-56,30],[-50,-10],[-60,-20],[-76,-4],[-74,-30],[-90,-30],[-84,-56],[-96,-60],[-62,-98],[-40,-52],[-26,-66],[-34,-84]];
+var WK = { 10: 1, 11: 1.2, 12: 1, 13: 0.8, 14: 0.7, 15: 0.5, 16: 0.3, 32: 0.3, 33: 0.5, 34: 0.7, 35: 0.8, 36: 1, 37: 1.2, 38: 1 };  // how far each wing point moves when flapping
 function dragon() {
+  var roar = V.roarT > 0 ? V.roarT / 0.5 : 0, m = V.mouth || 0;
   var sh = V.hurtT > 0 ? (rn(5) * 6) : 0, sc = 1 + Math.sin(TM * 2) * 0.012;
-  ctx.save(); ctx.translate(GX + sh, GY - 4); ctx.scale(sc, sc);
-  var pts = GZ.map(function (p, i) { return [p[0] + rn(i + 300) * 3, p[1] + rn(i + 400) * 3]; });
+  ctx.save(); ctx.translate(GX + sh, GY - 4); ctx.scale(sc * (1 + roar * 0.05), sc * (1 - roar * 0.06));
+  // wings flap; while charging fire they lift, and the head rears back then dips on a roar
+  var flap = Math.sin(TM * 3.2) * 14 * (V.bs === 2 ? 0.5 : 1) - (V.bs === 1 ? 12 : 0);
+  var bob = Math.sin(TM * 2.4) * 2 - (V.bs === 1 ? 5 : 0) + roar * 5;
+  var pts = GZ.map(function (p, i) {
+    var x = p[0] + rn(i + 300) * 3, y = p[1] + rn(i + 400) * 3;
+    if (WK[i]) y += flap * WK[i];
+    if (i <= 8 || i >= 40) y += bob;
+    return [x, y];
+  });
   function path() { ctx.beginPath(); pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath(); }
   path(); ctx.fillStyle = 'rgba(240,130,70,.6)'; ctx.fill();
   ctx.save(); path(); ctx.clip();
@@ -584,17 +606,43 @@ function dragon() {
   ctx.strokeStyle = '#4a2418'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
   path(); ctx.stroke();
   ctx.save(); ctx.translate(rn(900) * 1.5, rn(901) * 1.5); ctx.lineWidth = 1.5; path(); ctx.stroke(); ctx.restore();
-  ctx.lineWidth = 2.5; ctx.strokeStyle = '#4a2418'; ctx.fillStyle = '#ffd23c';
-  circ(-13, -88, 6, 500, true); circ(13, -88, 6, 520, true);
-  ctx.fillStyle = '#222'; line(-13, -94, -13, -82, 540, 0.6); line(13, -94, 13, -82, 560, 0.6);
-  line(-24, -100, -6, -92, 580, 1); line(24, -100, 6, -92, 590, 1);
+  // face (moves with the head)
+  ctx.save(); ctx.translate(0, bob);
+  var blink = (TM % 3.7) < 0.15, rage = V.bs === 1;
+  ctx.lineWidth = 2.5; ctx.strokeStyle = '#4a2418';
+  if (blink) { line(-19, -88, -7, -88, 540, 0.6); line(7, -88, 19, -88, 560, 0.6); }
+  else {
+    ctx.fillStyle = rage ? '#ff4a2a' : '#ffd23c';
+    circ(-13, -88, 6, 500, true); circ(13, -88, 6, 520, true);
+    ctx.fillStyle = '#222'; line(-13, -94, -13, -82, 540, 0.6); line(13, -94, 13, -82, 560, 0.6);
+  }
+  var bw = rage ? 5 : 0;
+  line(-24, -100 - bw, -6, -92 + bw, 580, 1); line(24, -100 - bw, 6, -92 + bw, 590, 1);
   line(-4, -78, -2, -76, 595, 0.3); line(4, -78, 2, -76, 596, 0.3);
-  ctx.beginPath(); ctx.moveTo(-18, -70);
-  for (var t = 0; t < 8; t++) ctx.lineTo(-18 + t * 4.5 + 2.2, t % 2 ? -70 : -63);
-  ctx.lineTo(18, -70); ctx.stroke();
-  ctx.lineWidth = 1.8;
+  // smoke drifting from the nostrils
+  ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(90,90,90,.7)';
+  for (var sd = 0; sd < 2; sd++) for (var q = 0; q < 2; q++) {
+    var ph = (TM * 0.5 + q * 0.5 + sd * 0.25) % 1, dir = sd ? 1 : -1;
+    ctx.globalAlpha = 1 - ph; ctx.beginPath(); ctx.arc(dir * (5 + ph * 22), -78 - ph * 10, 2 + ph * 4, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // mouth: opens to roar and to breathe fire
+  ctx.lineWidth = 2; ctx.strokeStyle = '#4a2418';
+  var ry = 2 + 9 * m, my = -66 + 4 * m;
+  ctx.fillStyle = '#5a1010'; ctx.beginPath(); ctx.ellipse(0, my, 17, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff';
+  for (var k2 = -3; k2 <= 3; k2++) { var tx = k2 * 4.6, ty = my - ry * 0.85; ctx.beginPath(); ctx.moveTo(tx - 2, ty); ctx.lineTo(tx + 2, ty); ctx.lineTo(tx, ty + 4); ctx.closePath(); ctx.fill(); }
+  if (V.bs === 1) { ctx.fillStyle = 'rgba(255,120,30,.55)'; circ(0, my, 5 + Math.sin(TM * 20) * 1.5, 700, true); }
+  else if (V.bs === 2) {
+    ctx.strokeStyle = '#c0391b'; ctx.fillStyle = '#ff7a1f'; circ(0, my, 15 + rn(710) * 5, 710, true);
+    ctx.fillStyle = '#ffd23c'; circ(0, my, 8 + rn(720) * 3, 720, true);
+  }
+  ctx.restore();
+  // belly scales and wing veins (follow the flapping wings)
+  ctx.strokeStyle = '#4a2418'; ctx.lineWidth = 1.8;
   for (var b = 0; b < 5; b++) line(-26 + b * 2, -2 + b * 18, 26 - b * 2, 4 + b * 18, 610 + b, 1.5);
-  line(40, -52, 90, -45, 640, 1.5); line(40, -52, 80, -80, 650, 1.5); line(-40, -52, -90, -45, 660, 1.5); line(-40, -52, -80, -80, 670, 1.5);
+  line(40, -52, pts[13][0], pts[13][1], 640, 1.5); line(40, -52, (pts[10][0] + pts[11][0]) / 2, (pts[10][1] + pts[11][1]) / 2, 650, 1.5);
+  line(-40, -52, pts[35][0], pts[35][1], 660, 1.5); line(-40, -52, (pts[38][0] + pts[37][0]) / 2, (pts[38][1] + pts[37][1]) / 2, 670, 1.5);
   ctx.restore();
 }
 
@@ -704,6 +752,9 @@ function frame(now) {
       var k = Math.min(1, dt * 10); u.x += dx * k; u.y += dy * k; u.age += dt;
     }
     V.hurtT = Math.max(0, V.hurtT - dt);
+    V.roarT = Math.max(0, V.roarT - dt);
+    var mt = V.bs === 1 ? 0.6 : V.bs === 2 ? 1 : V.roarT > 0 ? 0.8 : 0.12;
+    V.mouth += (mt - V.mouth) * Math.min(1, dt * 10);
     V.rings.forEach(function (r) { r.t += dt; }); V.rings = V.rings.filter(function (r) { return r.t < 0.5; });
     V.pend.forEach(function (p) { p.t += dt; }); V.pend = V.pend.filter(function (p) { return p.t < 0.5; });
     V.blasts.forEach(function (b) { b.t += dt; }); V.blasts = V.blasts.filter(function (b) { return b.t < 0.6; });
@@ -729,6 +780,101 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
+/* ================= Sound (synthesised with Web Audio, so there are no audio files to download) ================= */
+var AC = null, master, sfxG, musG, noiseBuf, musNext = 0, musStep = 0;
+var sfxOn = true, musOn = true, lastSfx = {};
+try { sfxOn = localStorage.getItem('sd_sfx') !== '0'; musOn = localStorage.getItem('sd_mus') !== '0'; } catch (e) {}
+function saveSnd() { try { localStorage.setItem('sd_sfx', sfxOn ? '1' : '0'); localStorage.setItem('sd_mus', musOn ? '1' : '0'); } catch (e) {} }
+function applyGains() { if (!AC) return; sfxG.gain.value = sfxOn ? 0.7 : 0; musG.gain.value = musOn ? 0.22 : 0; }
+function audioInit() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  try {
+    AC = new Ctor();
+    var comp = AC.createDynamicsCompressor(); comp.connect(AC.destination);
+    master = AC.createGain(); master.gain.value = 0.8; master.connect(comp);
+    sfxG = AC.createGain(); sfxG.connect(master);
+    musG = AC.createGain(); musG.connect(master);
+    noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    applyGains();
+    musNext = AC.currentTime + 0.1;
+    setInterval(musicTick, 250);
+  } catch (e) { AC = null; }
+}
+function tone(f, d, type, v, slide, delay, dest) {
+  var t = AC.currentTime + (delay || 0), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + d);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g); g.connect(dest || sfxG); o.start(t); o.stop(t + d + 0.02);
+}
+function noise(d, v, fc, delay, dest, type) {
+  var t = AC.currentTime + (delay || 0), s = AC.createBufferSource(), fl = AC.createBiquadFilter(), g = AC.createGain();
+  s.buffer = noiseBuf; fl.type = type || 'lowpass'; fl.frequency.value = fc;
+  g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  s.connect(fl); fl.connect(g); g.connect(dest || sfxG); s.start(t, Math.random() * 0.5, d + 0.02);
+}
+var GAP = { hit: 0.25, death: 0.05, spawn0: 0.04, spawn1: 0.04, spawn2: 0.04, vwarn: 0.3, tick: 0.2, blast: 0 };
+function sfx(name, vol) {
+  if (!AC || !sfxOn || AC.state !== 'running') return;
+  var now = AC.currentTime, gap = GAP[name] === undefined ? 0.03 : GAP[name];
+  if (lastSfx[name] !== undefined && now - lastSfx[name] < gap) return;
+  lastSfx[name] = now;
+  var v = vol === undefined ? 1 : vol;
+  switch (name) {
+    case 'click': tone(660, 0.05, 'square', 0.12 * v); break;
+    case 'nope': tone(200, 0.14, 'sawtooth', 0.18 * v, 110); break;
+    case 'spawn0': tone(320, 0.09, 'square', 0.2 * v, 520); break;
+    case 'spawn1': tone(160, 0.14, 'triangle', 0.45 * v, 90); break;
+    case 'spawn2': tone(700, 0.08, 'triangle', 0.28 * v, 1100); break;
+    case 'hit': noise(0.05, 0.18 * v, 1800); tone(220, 0.05, 'square', 0.08 * v, 120); break;
+    case 'death': tone(420, 0.16, 'square', 0.12 * v, 110); break;
+    case 'stomp': tone(95, 0.4, 'sine', 0.9 * v, 35); noise(0.3, 0.4 * v, 300); break;
+    case 'warn': tone(300, 0.9, 'sawtooth', 0.1 * v, 700); break;
+    case 'breath': noise(1.2, 0.45 * v, 1100); tone(120, 1.2, 'sawtooth', 0.2 * v, 60); break;
+    case 'vwarn': tone(880, 0.07, 'square', 0.1 * v); tone(880, 0.07, 'square', 0.1 * v, 0, 0.14); break;
+    case 'blast': noise(0.5, (0.3 + 0.4 * v), 500); tone(75, 0.45, 'sine', 0.3 + 0.5 * v, 30); break;
+    case 'upgrade': [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.12, 'triangle', 0.3 * v, 0, i * 0.08); }); break;
+    case 'tick': tone(1000, 0.06, 'square', 0.12 * v); break;
+    case 'start': tone(130, 0.9, 'sawtooth', 0.3 * v, 45); noise(0.7, 0.3 * v, 400); break;
+    case 'win': [523, 659, 784, 1047, 784, 1047].forEach(function (f, i) { tone(f, 0.22, 'triangle', 0.35 * v, 0, i * 0.14); }); break;
+  }
+}
+// Music: a looping minor-key tune. Calm in menus, with drums and a faster arpeggio during a fight.
+var BASS = [45, 41, 36, 43], CHORD = [[57, 60, 64], [53, 57, 60], [60, 64, 67], [55, 59, 62]], STEP = 60 / 120 / 2;
+function mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+function schedStep(s, t) {
+  var bar = Math.floor(s / 8) % 4, k = s % 8, dl = t - AC.currentTime;
+  var battle = view === 'game' && V && !V.over;
+  if (k % 2 === 0) tone(mtof(BASS[bar]), STEP * 1.8, 'triangle', 0.5, 0, dl, musG);
+  if (battle || k % 2 === 0) tone(mtof(CHORD[bar][k % 3] + 12), STEP * 0.9, 'square', battle ? 0.1 : 0.07, 0, dl, musG);
+  if (battle) {
+    if (k % 4 === 0) { tone(130, 0.15, 'sine', 0.8, 45, dl, musG); }
+    if (k === 4) noise(0.09, 0.35, 1800, dl, musG, 'bandpass');
+    if (k % 2 === 1) noise(0.03, 0.12, 6000, dl, musG, 'highpass');
+  }
+}
+function musicTick() {
+  if (!AC || AC.state !== 'running') return;
+  if (musNext < AC.currentTime - 0.2) musNext = AC.currentTime + 0.05;
+  if (!musOn) { musNext = AC.currentTime + 0.05; return; }
+  while (musNext < AC.currentTime + 1.5) { schedStep(musStep, musNext); musNext += STEP; musStep++; }
+}
+function paintSnd() { $('mus').classList.toggle('off', !musOn); $('sfxb').classList.toggle('off', !sfxOn); }
+$('mus').onclick = function () { musOn = !musOn; saveSnd(); applyGains(); paintSnd(); };
+$('sfxb').onclick = function () { sfxOn = !sfxOn; saveSnd(); applyGains(); paintSnd(); };
+paintSnd();
+document.addEventListener('pointerdown', audioInit);
+document.addEventListener('keydown', audioInit);
+document.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('button')) sfx('click'); });
+document.addEventListener('visibilitychange', function () {
+  if (!AC) return;
+  if (document.hidden) AC.suspend(); else AC.resume();
+});
+
 /* ================= Input ================= */
 function selType(t) {
   sel = t;
@@ -738,6 +884,8 @@ Array.prototype.forEach.call(document.querySelectorAll('#bar .unit'), function (
 Array.prototype.forEach.call(document.querySelectorAll('#bar .up'), function (b) { b.onclick = function () { sendUpgrade(+b.dataset.u); }; });
 function sendUpgrade(t) {
   if (!V || V.over) return;
+  var L = V.l[myIdx][t];
+  if (L >= 3 || (V.p[myIdx] || 0) < UPCOST[L]) return sfx('nope');
   if (mode === 'solo' || isHost) { if (sim) sim.upgrade(myIdx, t); }
   else roomRef.child('spawns').push({ p: myIdx, u: t });
 }
