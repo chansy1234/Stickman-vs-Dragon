@@ -62,9 +62,10 @@
     .stage { flex:1 1 auto; min-width:0; display:flex; justify-content:center; }
     canvas { width:min(100%, calc((100vh - 16px) * 1.6), 1300px); width:min(100%, calc((100dvh - 16px) * 1.6), 1300px); }
     #bar { flex:0 0 165px; flex-direction:column; flex-wrap:nowrap; align-items:stretch; margin-top:0; gap:6px; }
-    #bar .ucol { flex:0 0 auto; }
-    #bar .unit { padding:4px; font-size:.85rem; }
-    #bar .up { font-size:.7rem; padding:3px 2px; }
+    /* each unit is one short row: unit button on the left, upgrade button on the right */
+    #bar .ucol { flex:0 0 auto; flex-direction:row; align-items:stretch; gap:4px; }
+    #bar .unit { flex:1 1 auto; width:auto; padding:3px 4px; font-size:.8rem; }
+    #bar .up { flex:0 0 56px; font-size:.65rem; padding:2px; }
     /* column order: 3 units, energy bar, points, game guide */
     #energy { flex:0 0 22px; min-height:22px; }
     #pts { flex:0 0 auto; font-size:.72rem; }
@@ -783,7 +784,9 @@ function frame(now) {
       var t = +b.dataset.u, L = V.l[myIdx][t];
       b.disabled = L >= 3;
       b.classList.toggle('poor', L < 3 && pts < UPCOST[L]);
-      var txt = L >= 3 ? 'MAX ★★★' : 'Upgrade Lv' + L + '→' + (L + 1) + ' · ' + UPCOST[L] + ' pts';
+      var txt = compactMQ.matches
+        ? (L >= 3 ? 'MAX' : 'Lv' + L + '⬆' + UPCOST[L])
+        : (L >= 3 ? 'MAX ★★★' : 'Upgrade Lv' + L + '→' + (L + 1) + ' · ' + UPCOST[L] + ' pts');
       if (b.textContent !== txt) b.textContent = txt;
     });
   }
