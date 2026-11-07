@@ -64,7 +64,11 @@
     #bar .ucol { flex:0 0 auto; }
     #bar .unit { padding:4px; font-size:.85rem; }
     #bar .up { font-size:.7rem; padding:3px 2px; }
-    #pts { flex:0 0 auto; font-size:.75rem; }
+    #pts { flex:0 0 auto; font-size:.75rem; order:-1; }
+    /* energy bar goes first in the column so it is never cut off or collapsed */
+    #energy { flex:0 0 22px; order:-2; }
+    #bar { max-height:calc(100vh - 16px); max-height:calc(100dvh - 16px); overflow-y:auto; }
+    #bar .unit small { font-size:.65rem; }
     #hint { display:none; }
     #snd { top:auto; right:auto; bottom:6px; left:6px; }
   }
